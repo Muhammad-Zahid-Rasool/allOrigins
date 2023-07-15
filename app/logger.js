@@ -1,25 +1,27 @@
-const { once } = require('events')
-const { createLogger } = require('@logdna/logger')
-
-module.exports = (function () {
-  const logger = process.env.ENABLE_LOGDNA === '1' ? getLogDNA() : false
+module.exports = function (debug = false) {
+  const logger = debug ? defaultLogger() : false
 
   return {
+    logger,
     requestProcessed(data) {
-      if (!logger) return
-      const [to, from] = parseURLs(data)
+      if (!this.logger) return false
+      try {
+        const [to, from] = parseURLs(data)
 
-      delete data.headers['host']
+        delete data.headers['host']
 
-      logger.log(data, {
-        meta: {
-          to: to?.hostname,
-          from: from?.hostname || 'browser',
-        },
-      })
+        return this.logger.log(data, {
+          meta: {
+            to: to?.hostname,
+            from: from?.hostname || 'browser',
+          },
+        })
+      } catch (e) {
+        return e
+      }
     },
   }
-})()
+}
 
 function parseURLs(data) {
   try {
@@ -32,21 +34,24 @@ function parseURLs(data) {
   }
 }
 
-function getLogDNA() {
-  const logger = createLogger(process.env.LOGDNA_KEY, {
-    app: 'allOrigins',
-    indexMeta: true,
-  })
-
-  logger.on('error', console.error)
+function defaultLogger() {
+  const logger = {
+    log: (...args) => {
+      console.debug(...args)
+      return true
+    },
+    warn: (...args) => {
+      console.warn(...args)
+      return true
+    },
+  }
 
   function onSignal(signal) {
-    logger.warn('received signal, shutting down')
+    logger.warn(`received signal ${signal}, shutting down`)
     shutdown()
   }
 
   async function shutdown() {
-    await once(logger, 'cleared')
     process.exit(0)
   }
 
